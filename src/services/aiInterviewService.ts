@@ -10,14 +10,14 @@ import type {
   QuestionDifficulty
 } from "../types/interview";
 
-interface OpenAIResponseChoice<T> {
-  message?: {
-    content?: string;
-  };
-}
-
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL = "gpt-4o-mini";
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const DEFAULT_GEMINI_MODELS = [
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-001"
+];
 
 const FALLBACK_QUESTIONS: Record<QuestionDifficulty, string[]> = {
   easy: [
@@ -34,60 +34,119 @@ const FALLBACK_QUESTIONS: Record<QuestionDifficulty, string[]> = {
   ]
 };
 
-const readEnvKey = () => import.meta.env.VITE_OPENAI_API_KEY;
+const readEnvKey = () => import.meta.env.VITE_GEMINI_API_KEY;
+const readEnvModel = () => import.meta.env.VITE_GEMINI_MODEL?.trim();
 
-const buildHeaders = () => {
+interface GeminiCallOptions {
+  temperature?: number;
+  maxOutputTokens?: number;
+}
+
+const callGemini = async (prompt: string, options?: GeminiCallOptions): Promise<string | null> => {
   const apiKey = readEnvKey();
   if (!apiKey) {
-    return undefined;
-  }
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`
-  } satisfies HeadersInit;
-};
-
-const callOpenAI = async <T>(body: unknown): Promise<T | null> => {
-  const headers = buildHeaders();
-  if (!headers) {
     return null;
   }
 
-  try {
-    const response = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
+  const modelCandidates = Array.from(
+    new Set(
+      [readEnvModel(), ...DEFAULT_GEMINI_MODELS].filter((value): value is string => Boolean(value && value.length))
+    )
+  );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OpenAI API error", errorText);
-      return null;
+  if (!modelCandidates.length) {
+    console.error("Gemini request aborted: no model candidates configured");
+    return null;
+  }
+
+  for (const model of modelCandidates) {
+    const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${apiKey}`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            temperature: options?.temperature ?? 0.7,
+            topP: 0.95,
+            topK: 32,
+            maxOutputTokens: options?.maxOutputTokens ?? 1024
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 404) {
+          console.warn(`[Gemini] Model '${model}' unavailable, trying next candidate`, errorText);
+          continue;
+        }
+
+        console.error("Gemini API error", { model, status: response.status, body: errorText });
+        return null;
+      }
+
+      const data = await response.json();
+      const raw = extractTextFromGemini(data);
+      if (raw) {
+        return raw;
+      }
+
+      console.warn(`[Gemini] Model '${model}' returned empty content`, data);
+    } catch (error) {
+      console.error(`Gemini request failed for model '${model}'`, error);
     }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error("OpenAI request failed", error);
-    return null;
   }
+
+  console.error("Gemini request failed: all model candidates exhausted", modelCandidates);
+  return null;
 };
 
-const parseJsonFromChoice = (choice: OpenAIResponseChoice<unknown> | undefined) => {
-  if (!choice?.message?.content) {
+const extractTextFromGemini = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== "object") {
     return null;
   }
-  const raw = choice.message.content.trim();
+
+  const candidates = (payload as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }>; }; }> }).candidates;
+  if (!candidates?.length) {
+    return null;
+  }
+
+  const parts = candidates[0]?.content?.parts;
+  if (!parts?.length) {
+    return null;
+  }
+
+  return parts
+    .map((part) => (part?.text ?? ""))
+    .join("")
+    .trim();
+};
+
+const parseJsonFromText = (raw: string | null): Record<string, unknown> | null => {
+  if (!raw) {
+    return null;
+  }
+
+  const trimmed = raw.trim();
   try {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
     if (start >= 0 && end >= start) {
-      return JSON.parse(raw.slice(start, end + 1));
+      return JSON.parse(trimmed.slice(start, end + 1));
     }
-    return JSON.parse(raw);
+    return JSON.parse(trimmed);
   } catch (error) {
-    console.warn("Failed to parse JSON from OpenAI response", error, raw);
+    console.warn("Failed to parse JSON from Gemini response", error, raw);
     return null;
   }
 };
@@ -111,39 +170,36 @@ export const generateInterviewQuestions = async (
   profile: CandidateProfile,
   config: InterviewConfiguration
 ): Promise<InterviewQuestion[]> => {
-  const result = await callOpenAI<{ choices: OpenAIResponseChoice<unknown>[] }>(
+  const prompt = `You are an AI technical interviewer building a ${config.totalQuestions}-question interview for a full-stack (React/Node.js) candidate.
+Return ONLY valid JSON that matches this schema:
+{
+  "questions": [
     {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an AI technical interviewer building a 6-question interview for a full-stack (React/Node.js) candidate. Respond with JSON matching the schema { questions: [{ id, prompt, difficulty, category, timeLimitSeconds, guidance }] }. Use the provided difficulty pattern."
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            candidate: {
-              name: profile.name,
-              email: profile.email,
-              phone: profile.phone,
-              role: profile.role
-            },
-            difficultyPattern: config.difficultyPattern,
-            timerByDifficulty: config.timerByDifficulty
-          })
-        }
-      ],
-      temperature: 0.7,
-      response_format: { type: "json_object" }
+      "id": string,
+      "prompt": string,
+      "difficulty": "easy" | "medium" | "hard",
+      "category": string,
+      "timeLimitSeconds": number,
+      "guidance": string
     }
-  );
+  ]
+}
 
-  if (!result?.choices?.length) {
-    return fallbackQuestions(config);
-  }
+Candidate profile:
+${JSON.stringify({ name: profile.name, email: profile.email, phone: profile.phone, role: profile.role }, null, 2)}
 
-  const parsed = parseJsonFromChoice(result.choices[0]);
+Interview configuration:
+${JSON.stringify(config, null, 2)}
+
+Ensure the difficulty sequence exactly matches the provided pattern and keep prompts concise but specific.`;
+
+  const raw = await callGemini(prompt, {
+    temperature: 0.7,
+    maxOutputTokens: 1024
+  });
+
+  const parsed = parseJsonFromText(raw);
+
   if (!parsed || !Array.isArray((parsed as { questions?: unknown }).questions)) {
     return fallbackQuestions(config);
   }
@@ -180,33 +236,37 @@ export const evaluateAnswerWithAI = async (
   answer: string,
   chatHistory: ChatMessage[]
 ): Promise<{ score: number; feedback: string }> => {
-  const result = await callOpenAI<{ choices: OpenAIResponseChoice<unknown>[] }>(
-    {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an AI interviewer evaluating a candidate's answer. Reply in JSON with { score: number (0-10), feedback: string }. Consider technical depth, clarity, and problem solving."
-        },
-        {
-          role: "user",
-          content: JSON.stringify({ question, answer, chatHistory })
-        }
-      ],
-      temperature: 0.2,
-      response_format: { type: "json_object" }
-    }
-  );
+  const prompt = `You are an AI interviewer evaluating a candidate's answer.
+Return ONLY JSON with this schema:
+{
+  "score": number (0-10),
+  "feedback": string
+}
 
-  if (!result?.choices?.length) {
+Consider technical depth, clarity, and problem solving.
+
+Question:
+${JSON.stringify(question, null, 2)}
+
+Answer:
+${answer}
+
+Conversation history:
+${JSON.stringify(chatHistory, null, 2)}`;
+
+  const raw = await callGemini(prompt, {
+    temperature: 0.2,
+    maxOutputTokens: 512
+  });
+
+  if (!raw) {
     return {
       score: fallbackScore(answer, question.difficulty),
       feedback: "Using offline evaluator: good effort. Make sure to ground your answer with concrete examples and cover both implementation details and trade-offs."
     };
   }
 
-  const parsed = parseJsonFromChoice(result.choices[0]);
+  const parsed = parseJsonFromText(raw);
   if (!parsed) {
     return {
       score: fallbackScore(answer, question.difficulty),
@@ -227,25 +287,6 @@ export const summarizeInterviewWithAI = async (
   questions: InterviewQuestion[],
   answers: AnswerRecord[]
 ): Promise<InterviewSummary> => {
-  const result = await callOpenAI<{ choices: OpenAIResponseChoice<unknown>[] }>(
-    {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an AI interviewer summarizing a technical interview. Respond with JSON { finalScore: number (0-10), summaryText: string, strengths: string[], improvements: string[] }."
-        },
-        {
-          role: "user",
-          content: JSON.stringify({ profile, questions, answers })
-        }
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" }
-    }
-  );
-
   const totalScore = answers.reduce((total, record) => total + (record.aiScore ?? 5), 0);
   const averageScore = answers.length > 0 ? totalScore / answers.length : 5;
 
@@ -257,16 +298,39 @@ export const summarizeInterviewWithAI = async (
     improvements: ["Provide more metrics", "Discuss alternative approaches"]
   };
 
-  if (!result?.choices?.length) {
+  const prompt = `You are an AI interviewer summarizing a technical interview.
+Return ONLY JSON with this schema:
+{
+  "finalScore": number (0-10),
+  "summaryText": string,
+  "strengths": string[],
+  "improvements": string[]
+}
+
+Candidate profile:
+${JSON.stringify(profile, null, 2)}
+
+Questions:
+${JSON.stringify(questions, null, 2)}
+
+Answers:
+${JSON.stringify(answers, null, 2)}`;
+
+  const raw = await callGemini(prompt, {
+    temperature: 0.3,
+    maxOutputTokens: 1024
+  });
+
+  if (!raw) {
     return baseSummary;
   }
 
-  const parsed = parseJsonFromChoice(result.choices[0]);
+  const parsed = parseJsonFromText(raw);
   if (!parsed) {
     return baseSummary;
   }
 
-  const summary = parsed as InterviewSummary;
+  const summary = parsed as unknown as Partial<InterviewSummary>;
   return {
     finalScore: summary.finalScore ?? baseSummary.finalScore,
     summaryText: summary.summaryText ?? baseSummary.summaryText,
