@@ -7,7 +7,7 @@ import type {
   RequiredProfileField,
   ResumeFileMeta
 } from "../types/interview";
-import pdfWorkerSrc from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
 
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_REGEX = /(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}/g;
