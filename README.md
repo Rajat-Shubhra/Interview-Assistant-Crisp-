@@ -30,6 +30,7 @@ LLM-powered mock interview companion featuring synchronized interviewer and inte
 - Generate tailored interview question sets across difficulty bands.
 - Evaluate candidate answers with structured scoring and actionable feedback.
 - Summarize the interview with strengths, improvements, and final score for the interviewer.
+- Monitor a live interviewer dashboard with question progress, transcript playback, and recent candidate history.
 
 ## Environment variables
 
