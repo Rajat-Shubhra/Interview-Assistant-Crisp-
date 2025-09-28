@@ -11,7 +11,7 @@ import {
   Upload,
   message
 } from "antd";
-import { InboxOutlined, CheckCircleTwoTone } from "@ant-design/icons";
+import { InboxOutlined, CheckCircleTwoTone, EditOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import dayjs from "dayjs";
@@ -56,6 +56,7 @@ export const IntervieweeView = () => {
   const [answerDraft, setAnswerDraft] = useState("");
   const [isStartingInterview, setIsStartingInterview] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   const currentQuestionId = activeSession?.currentQuestionId ?? null;
   const currentQuestion: InterviewQuestion | null = currentQuestionId
@@ -71,6 +72,8 @@ export const IntervieweeView = () => {
     : -1;
   const chatMessages: ChatMessage[] = activeSession?.chat ?? [];
   const interviewSummary = activeSession?.summary ?? null;
+  const shouldShowProfileEditor = isEditingProfile || missingFields.length > 0;
+  const showEditButton = missingFields.length === 0;
 
   const timerRef = useRef<QuestionTimerState | null>(currentTimer);
   const autoSubmittedRef = useRef<string | null>(null);
@@ -116,6 +119,12 @@ export const IntervieweeView = () => {
   }, [currentQuestionId]);
 
   useEffect(() => {
+    if (missingFields.length > 0) {
+      setIsEditingProfile(true);
+    }
+  }, [missingFields.length]);
+
+  useEffect(() => {
     if (!currentQuestionId || !currentTimer?.isRunning) {
       return;
     }
@@ -152,7 +161,7 @@ export const IntervieweeView = () => {
     return () => window.clearInterval(intervalId);
   }, [currentQuestionId, currentTimer, dispatch]);
 
-  const onMissingFieldChange = useCallback(
+  const handleProfileFieldChange = useCallback(
     (field: RequiredProfileField, value: string) => {
       dispatch(updateProfileField({ field, value }));
     },
@@ -176,6 +185,20 @@ export const IntervieweeView = () => {
   const handleReset = () => {
     dispatch(resetSession());
   };
+
+  const handleToggleProfileEditing = useCallback(() => {
+    setIsEditingProfile((prev) => {
+      const next = !prev;
+      if (!next && activeProfile) {
+        form.setFieldsValue({
+          name: activeProfile.name ?? "",
+          email: activeProfile.email ?? "",
+          phone: activeProfile.phone ?? ""
+        });
+      }
+      return next;
+    });
+  }, [activeProfile, form]);
 
   const handleStartInterview = useCallback(async () => {
     if (isStartingInterview || !activeSession) {
@@ -440,8 +463,10 @@ export const IntervieweeView = () => {
     );
   };
 
-  const renderMissingFields = () => {
-    if (missingFields.length === 0) {
+  const renderProfileEditor = () => {
+    const fieldHasWarning = (field: RequiredProfileField) => missingFields.includes(field);
+
+    if (!shouldShowProfileEditor) {
       return (
         <Alert
           type="success"
@@ -454,43 +479,66 @@ export const IntervieweeView = () => {
 
     return (
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-        <Alert
-          type="warning"
-          showIcon
-          message="We couldn't find everything in your resume. Please fill in the missing details to continue."
-        />
-        <div className={styles.missingFields}>
-          {missingFields.map((field: RequiredProfileField) => (
-            <Tag key={field} color="orange">
-              Missing: {field.toUpperCase()}
-            </Tag>
-          ))}
-        </div>
+        {missingFields.length > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="We couldn't find everything in your resume. Please fill in the missing details to continue."
+          />
+        ) : (
+          <Alert
+            type="info"
+            showIcon
+            message="Edit your contact details if the automatic parser got anything wrong."
+          />
+        )}
+        {missingFields.length > 0 && (
+          <div className={styles.missingFields}>
+            {missingFields.map((field: RequiredProfileField) => (
+              <Tag key={field} color="orange">
+                Missing: {field.toUpperCase()}
+              </Tag>
+            ))}
+          </div>
+        )}
         <Form
           form={form}
           layout="vertical"
+          className={styles.profileForm}
           onValuesChange={(changedValues: Record<string, unknown>) => {
             const [field, value] = Object.entries(changedValues)[0] ?? [];
             if (field && value !== undefined) {
-              onMissingFieldChange(field as RequiredProfileField, value as string);
+                  handleProfileFieldChange(field as RequiredProfileField, value as string);
             }
           }}
         >
-          {missingFields.includes("name") && (
-            <Form.Item label="Full Name" name="name" required>
-              <Input placeholder="Enter your full name" />
-            </Form.Item>
-          )}
-          {missingFields.includes("email") && (
-            <Form.Item label="Email" name="email" required>
-              <Input type="email" placeholder="Enter your email address" />
-            </Form.Item>
-          )}
-          {missingFields.includes("phone") && (
-            <Form.Item label="Phone" name="phone" required>
-              <Input placeholder="Enter your phone number" />
-            </Form.Item>
-          )}
+          <Form.Item
+            label="Full Name"
+            name="name"
+            required
+            validateStatus={fieldHasWarning("name") ? "warning" : undefined}
+            help={fieldHasWarning("name") ? "Name is required to personalize the interview." : undefined}
+          >
+            <Input placeholder="Enter your full name" allowClear />
+          </Form.Item>
+          <Form.Item
+            label="Email"
+            name="email"
+            required
+            validateStatus={fieldHasWarning("email") ? "warning" : undefined}
+            help={fieldHasWarning("email") ? "We'll use this to share your interview recap." : undefined}
+          >
+            <Input type="email" placeholder="Enter your email address" allowClear />
+          </Form.Item>
+          <Form.Item
+            label="Phone"
+            name="phone"
+            required
+            validateStatus={fieldHasWarning("phone") ? "warning" : undefined}
+            help={fieldHasWarning("phone") ? "Provide a phone number so we can reach you if needed." : undefined}
+          >
+            <Input placeholder="Enter your phone number" allowClear />
+          </Form.Item>
         </Form>
       </Space>
     );
@@ -529,7 +577,7 @@ export const IntervieweeView = () => {
         <Title level={4} className={styles.sectionTitle}>
           Resume Upload
         </Title>
-        <Upload.Dragger {...uploadProps}>
+  <Upload.Dragger {...uploadProps} className={styles.uploadDragger}>
           <p className="ant-upload-drag-icon">
             <InboxOutlined />
           </p>
@@ -581,40 +629,53 @@ export const IntervieweeView = () => {
 
         {activeProfile ? (
           <Space direction="vertical" size="large" style={{ width: "100%" }}>
-            <Descriptions column={1} size="small" bordered>
-              <Descriptions.Item label="Name">
-                <Space>
-                  <Text>{activeProfile.name ?? "Not yet provided"}</Text>
-                  {activeProfile.name ? (
-                    <Badge status="success" text="Ready" />
-                  ) : (
-                    <Badge status="processing" text="Pending" />
-                  )}
-                </Space>
-              </Descriptions.Item>
-              <Descriptions.Item label="Email">
-                <Space>
-                  <Text>{activeProfile.email ?? "Not yet provided"}</Text>
-                  {activeProfile.email ? (
-                    <Badge status="success" text="Ready" />
-                  ) : (
-                    <Badge status="processing" text="Pending" />
-                  )}
-                </Space>
-              </Descriptions.Item>
-              <Descriptions.Item label="Phone">
-                <Space>
-                  <Text>{activeProfile.phone ?? "Not yet provided"}</Text>
-                  {activeProfile.phone ? (
-                    <Badge status="success" text="Ready" />
-                  ) : (
-                    <Badge status="processing" text="Pending" />
-                  )}
-                </Space>
-              </Descriptions.Item>
-            </Descriptions>
+            <div className={styles.profileOverview}>
+              <Descriptions column={1} size="small" bordered>
+                <Descriptions.Item label="Name">
+                  <Space>
+                    <Text>{activeProfile.name ?? "Not yet provided"}</Text>
+                    {activeProfile.name ? (
+                      <Badge status="success" text="Ready" />
+                    ) : (
+                      <Badge status="processing" text="Pending" />
+                    )}
+                  </Space>
+                </Descriptions.Item>
+                <Descriptions.Item label="Email">
+                  <Space>
+                    <Text>{activeProfile.email ?? "Not yet provided"}</Text>
+                    {activeProfile.email ? (
+                      <Badge status="success" text="Ready" />
+                    ) : (
+                      <Badge status="processing" text="Pending" />
+                    )}
+                  </Space>
+                </Descriptions.Item>
+                <Descriptions.Item label="Phone">
+                  <Space>
+                    <Text>{activeProfile.phone ?? "Not yet provided"}</Text>
+                    {activeProfile.phone ? (
+                      <Badge status="success" text="Ready" />
+                    ) : (
+                      <Badge status="processing" text="Pending" />
+                    )}
+                  </Space>
+                </Descriptions.Item>
+              </Descriptions>
+              {showEditButton && (
+                <div className={styles.profileActions}>
+                  <Button
+                    type={shouldShowProfileEditor ? "default" : "primary"}
+                    icon={<EditOutlined />}
+                    onClick={handleToggleProfileEditing}
+                  >
+                    {shouldShowProfileEditor ? "Close editor" : "Edit details"}
+                  </Button>
+                </div>
+              )}
+            </div>
 
-            {renderMissingFields()}
+            {renderProfileEditor()}
             {renderReadyState()}
           </Space>
         ) : (

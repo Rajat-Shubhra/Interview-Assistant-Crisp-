@@ -100,12 +100,18 @@ const sessionSlice = createSlice({
         return;
       }
 
+      const trimmedValue = action.payload.value.trim();
+      const nextMissing = new Set(state.activeProfile.missingFields);
+      if (trimmedValue.length === 0) {
+        nextMissing.add(action.payload.field);
+      } else {
+        nextMissing.delete(action.payload.field);
+      }
+
       state.activeProfile = {
         ...state.activeProfile,
-        [action.payload.field]: action.payload.value,
-        missingFields: state.activeProfile.missingFields.filter(
-          (f: RequiredProfileField) => f !== action.payload.field
-        )
+        [action.payload.field]: trimmedValue,
+        missingFields: Array.from(nextMissing)
       };
     },
     setProfileMissingFields(

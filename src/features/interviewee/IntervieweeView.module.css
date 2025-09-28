@@ -15,12 +15,36 @@
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
 }
 
 .sectionTitle {
   font-size: 18px;
   font-weight: 600;
-  margin-bottom: 16px;
+  margin-bottom: 0;
+}
+
+.uploadDragger {
+  width: 100%;
+  border-radius: 12px !important;
+  border: 1px dashed rgba(24, 144, 255, 0.45) !important;
+  background: rgba(230, 247, 255, 0.65) !important;
+  padding: 24px 16px !important;
+  box-sizing: border-box;
+  margin-bottom: 0;
+}
+
+.uploadDragger :global(.ant-upload-btn) {
+  padding: 0 !important;
+}
+
+.uploadDragger :global(.ant-upload-drag-container) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .uploadHint {
@@ -46,6 +70,27 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.profileOverview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.profileActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.profileForm {
+  width: 100%;
 }
 
 .previewBox {

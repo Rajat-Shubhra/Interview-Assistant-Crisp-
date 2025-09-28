@@ -11,6 +11,61 @@ import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
 
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_REGEX = /(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}/g;
+const NAME_MAX_WORDS = 6;
+const NAME_MAX_LENGTH = 64;
+
+const sanitizeNameCandidate = (line: string): string | null => {
+  const withoutBullet = line.replace(/^[\s*•\-\u2022]+/, "").trim();
+  if (!withoutBullet) {
+    return null;
+  }
+
+  const withoutHeader = withoutBullet.replace(/^(resume|curriculum vitae|cv)[\s:.-]*/i, "").trim();
+  if (!withoutHeader) {
+    return null;
+  }
+
+  const collapsed = withoutHeader.replace(/\s+/g, " ").trim();
+  if (!collapsed) {
+    return null;
+  }
+
+  const words = collapsed.split(" ").filter(Boolean);
+  if (!words.length) {
+    return null;
+  }
+
+  const truncatedWords = words.slice(0, NAME_MAX_WORDS);
+  let candidate = truncatedWords.join(" ");
+  if (candidate.length > NAME_MAX_LENGTH) {
+    candidate = candidate.slice(0, NAME_MAX_LENGTH).trim();
+  }
+
+  if (!candidate) {
+    return null;
+  }
+
+  if (/[@\d]{3,}/.test(candidate)) {
+    return null;
+  }
+
+  const alphaCount = (candidate.match(/[a-zA-Z]/g) ?? []).length;
+  if (alphaCount < 2) {
+    return null;
+  }
+
+  return candidate;
+};
+
+const pickProbableName = (lines: string[]): { sanitized: string | null; original: string | null } => {
+  for (const line of lines.slice(0, 12)) {
+    const sanitized = sanitizeNameCandidate(line);
+    if (sanitized) {
+      return { sanitized, original: line };
+    }
+  }
+  return { sanitized: null, original: lines[0] ?? null };
+};
 
 interface ExtractedFields {
   name: string | null;
@@ -42,7 +97,7 @@ const extractFromText = (text: string): ExtractedFields => {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const probableName = lines.length > 0 ? lines[0] : null;
+  const { sanitized: probableName, original: nameSource } = pickProbableName(lines);
 
   const missingFields: RequiredProfileField[] = [];
   if (!probableName) missingFields.push("name");
@@ -56,7 +111,7 @@ const extractFromText = (text: string): ExtractedFields => {
 
   const emailPattern = highlight(emailMatch?.[0] ?? null);
   const phonePattern = highlight(phoneMatch?.[0] ?? null);
-  const namePattern = highlight(probableName);
+  const namePattern = highlight(nameSource);
 
   let highlightedPreview = text;
   if (emailPattern) {

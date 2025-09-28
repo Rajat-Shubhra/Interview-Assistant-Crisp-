@@ -170,7 +170,7 @@ export const generateInterviewQuestions = async (
   profile: CandidateProfile,
   config: InterviewConfiguration
 ): Promise<InterviewQuestion[]> => {
-  const prompt = `You are an AI technical interviewer building a ${config.totalQuestions}-question interview for a full-stack (React/Node.js) candidate.
+  const prompt = `You are an AI technical interviewer creating a ${config.totalQuestions}-question assessment for a full-stack engineer focused on React and Node.js.
 Return ONLY valid JSON that matches this schema:
 {
   "questions": [
@@ -185,13 +185,14 @@ Return ONLY valid JSON that matches this schema:
   ]
 }
 
-Candidate profile:
-${JSON.stringify({ name: profile.name, email: profile.email, phone: profile.phone, role: profile.role }, null, 2)}
-
 Interview configuration:
 ${JSON.stringify(config, null, 2)}
 
-Ensure the difficulty sequence exactly matches the provided pattern and keep prompts concise but specific.`;
+Guidelines:
+- Ignore any candidate-specific resume or background details. Craft universally applicable questions.
+- Each question should stand alone and be suitable for asking sequentially, one at a time.
+- Cover a balanced mix of front-end (React), back-end (Node.js/Express), data handling, testing, and deployment/performance topics.
+- Keep prompts concise but specific, and include targeted guidance for what a strong answer should cover.`;
 
   const raw = await callGemini(prompt, {
     temperature: 0.7,
