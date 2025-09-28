@@ -22,13 +22,13 @@ const initialState: CandidatesState = {
 };
 
 const sorters: Record<CandidateSortKey, (a: CandidateArchiveRecord, b: CandidateArchiveRecord) => number> = {
-  score: (a, b) => b.finalScore - a.finalScore,
+  score: (a, b) => a.finalScore - b.finalScore,
   name: (a, b) => {
     const nameA = a.profile.name ?? "";
     const nameB = b.profile.name ?? "";
     return nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
   },
-  date: (a, b) => dayjs(b.completedAt).valueOf() - dayjs(a.completedAt).valueOf()
+  date: (a, b) => dayjs(a.completedAt).valueOf() - dayjs(b.completedAt).valueOf()
 };
 
 const applySort = (
