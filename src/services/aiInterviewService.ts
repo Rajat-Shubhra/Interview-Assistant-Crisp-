@@ -1,5 +1,6 @@
 import { nanoid } from "@reduxjs/toolkit";
 import dayjs from "dayjs";
+import { fetchWithRetry } from "../utils/retry";
 import type {
   AnswerRecord,
   CandidateProfile,
@@ -48,6 +49,11 @@ export const callGemini = async (prompt: string, options?: GeminiCallOptions): P
     return null;
   }
 
+  const MAX_ATTEMPTS = 4;
+  const BASE_DELAY_MS = 500;
+  const JITTER_MS = 200;
+  const transientStatuses = [429, 500, 502, 503, 504];
+
   const modelCandidates = Array.from(
     new Set(
       [readEnvModel(), ...DEFAULT_GEMINI_MODELS].filter((value): value is string => Boolean(value && value.length))
@@ -63,26 +69,51 @@ export const callGemini = async (prompt: string, options?: GeminiCallOptions): P
     const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${apiKey}`;
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }]
+      // Use shared fetchWithRetry so every Gemini-bound service call gets exponential backoff and jitter handling.
+      const response = await fetchWithRetry(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: prompt }]
+              }
+            ],
+            generationConfig: {
+              temperature: options?.temperature ?? 0.7,
+              topP: 0.95,
+              topK: 32,
+              maxOutputTokens: options?.maxOutputTokens ?? 1024
             }
-          ],
-          generationConfig: {
-            temperature: options?.temperature ?? 0.7,
-            topP: 0.95,
-            topK: 32,
-            maxOutputTokens: options?.maxOutputTokens ?? 1024
+          })
+        },
+        {
+          maxAttempts: MAX_ATTEMPTS,
+          baseDelayMs: BASE_DELAY_MS,
+          jitterMs: JITTER_MS,
+          retryStatuses: transientStatuses,
+          onRetry: async (info) => {
+            const delayLabel = `${info.delayMs}ms`;
+            if (info.reason === "status" && typeof info.status === "number" && info.response) {
+              const errorText = await info.response.text();
+              console.warn(
+                `[Gemini] Transient error (status ${info.status}) on model '${model}', retrying after ${delayLabel}`,
+                errorText
+              );
+            } else if (info.reason === "error") {
+              console.warn(
+                `[Gemini] Request failure on model '${model}', retrying after ${delayLabel} (attempt ${info.attempt} of ${MAX_ATTEMPTS})`,
+                info.error
+              );
+            }
           }
-        })
-      });
+        }
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -102,6 +133,7 @@ export const callGemini = async (prompt: string, options?: GeminiCallOptions): P
       }
 
       console.warn(`[Gemini] Model '${model}' returned empty content`, data);
+      continue;
     } catch (error) {
       console.error(`Gemini request failed for model '${model}'`, error);
     }

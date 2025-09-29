@@ -215,11 +215,20 @@ src/
 │   ├── aiInterviewService.ts    # Gemini AI integration
 │   ├── resumeParser.ts         # PDF/DOCX processing
 │   └── resumeStorage.ts        # File persistence
+├── utils/
+│   └── retry.ts                # Shared HTTP retry/backoff helper
 ├── store/
 │   ├── slices/         # Redux state management
 │   └── thunks/         # Async actions
 └── types/
     └── interview.ts    # TypeScript definitions
+
+### Gemini API Resilience
+
+- All Gemini-bound requests flow through `callGemini`, which now wraps outbound HTTP calls with the shared `fetchWithRetry` helper (`src/utils/retry.ts`).
+- Each request gets up to **four attempts** with exponential backoff (500 ms → 1 s → 2 s) plus up to 200 ms of jitter, and retries are limited to transient statuses (`429`, `500`, `502`, `503`, `504`) or network errors.
+- When a retry is scheduled, the helper logs the status/error and delay duration so you can monitor flakiness during development.
+- The helper is reusable—import it anywhere additional network resilience is needed and customize `maxAttempts`, `retryStatuses`, or `onRetry` to hook into your own telemetry.
 ```
 
 ## Environment Variables
