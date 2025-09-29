@@ -282,7 +282,3 @@ npm test
 3. **Build warnings about chunk size**:
    - This is expected due to PDF.js library size
    - Use code splitting for production optimization
-
-### Getting Help
-
-For technical issues or feature requests, please check the project's GitHub issues or create a new issue with detailed information about your environment and the problem encountered.
