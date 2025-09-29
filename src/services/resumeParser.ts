@@ -7,10 +7,17 @@ import type {
   RequiredProfileField,
   ResumeFileMeta
 } from "../types/interview";
+import {
+  PHONE_DIGIT_COUNT,
+  isValidEmail,
+  isValidPhone,
+  sanitizeEmailInput,
+  sanitizePhoneInput
+} from "../utils/profileValidation";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
 
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const PHONE_REGEX = /(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}/g;
+const PHONE_SEQUENCE_REGEX = /\+?(?:\d[\s().-]*){10,}/g;
 const NAME_MAX_WORDS = 2;
 const NAME_MAX_LENGTH = 32;
 
@@ -35,7 +42,12 @@ const sanitizeNameCandidate = (line: string): string | null => {
     return null;
   }
 
-  const truncatedWords = words.slice(0, NAME_MAX_WORDS);
+  const filteredWords = words.filter((word) => /^[A-Za-z.]+$/.test(word));
+  if (!filteredWords.length) {
+    return null;
+  }
+
+  const truncatedWords = filteredWords.slice(0, NAME_MAX_WORDS);
   let candidate = truncatedWords.join(" ");
   if (candidate.length > NAME_MAX_LENGTH) {
     candidate = candidate.slice(0, NAME_MAX_LENGTH).trim();
@@ -57,6 +69,17 @@ const sanitizeNameCandidate = (line: string): string | null => {
   return candidate;
 };
 
+export const findPhoneCandidate = (text: string): { raw: string | null; sanitized: string | null } => {
+  const matches = text.match(PHONE_SEQUENCE_REGEX) ?? [];
+  for (const candidate of matches) {
+    const sanitized = sanitizePhoneInput(candidate);
+    if (sanitized.length === PHONE_DIGIT_COUNT) {
+      return { raw: candidate, sanitized };
+    }
+  }
+  return { raw: null, sanitized: null };
+};
+
 const pickProbableName = (lines: string[]): { sanitized: string | null; original: string | null } => {
   for (const line of lines.slice(0, 12)) {
     const sanitized = sanitizeNameCandidate(line);
@@ -67,7 +90,7 @@ const pickProbableName = (lines: string[]): { sanitized: string | null; original
   return { sanitized: null, original: lines[0] ?? null };
 };
 
-interface ExtractedFields {
+export interface ExtractedFields {
   name: string | null;
   email: string | null;
   phone: string | null;
@@ -90,7 +113,9 @@ const ensurePdfWorker = () => {
 
 const extractFromText = (text: string): ExtractedFields => {
   const emailMatch = text.match(EMAIL_REGEX);
-  const phoneMatch = text.match(PHONE_REGEX);
+  const { raw: rawPhone, sanitized: sanitizedPhone } = findPhoneCandidate(text);
+  const rawEmail = emailMatch?.[0] ?? null;
+  const sanitizedEmail = rawEmail ? sanitizeEmailInput(rawEmail) : null;
 
   const lines = text
     .split(/\r?\n/)
@@ -101,16 +126,16 @@ const extractFromText = (text: string): ExtractedFields => {
 
   const missingFields: RequiredProfileField[] = [];
   if (!probableName) missingFields.push("name");
-  if (!emailMatch?.[0]) missingFields.push("email");
-  if (!phoneMatch?.[0]) missingFields.push("phone");
+  if (!sanitizedEmail || !isValidEmail(sanitizedEmail)) missingFields.push("email");
+  if (!sanitizedPhone || !isValidPhone(sanitizedPhone)) missingFields.push("phone");
 
   const highlight = (value: string | null) => {
     if (!value) return value;
     return value.replace(/([.*+?^${}()|[\]\\])/g, "\\$1");
   };
 
-  const emailPattern = highlight(emailMatch?.[0] ?? null);
-  const phonePattern = highlight(phoneMatch?.[0] ?? null);
+  const emailPattern = highlight(rawEmail);
+  const phonePattern = highlight(rawPhone);
   const namePattern = highlight(nameSource);
 
   let highlightedPreview = text;
@@ -132,13 +157,15 @@ const extractFromText = (text: string): ExtractedFields => {
 
   return {
     name: probableName,
-    email: emailMatch?.[0] ?? null,
-    phone: phoneMatch?.[0] ?? null,
+    email: sanitizedEmail,
+    phone: sanitizedPhone,
     missingFields,
     rawText: text,
     highlightedPreview
   };
 };
+
+export const extractResumeFieldsFromText = (text: string): ExtractedFields => extractFromText(text);
 
 const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
   new Promise((resolve, reject) => {
@@ -236,8 +263,14 @@ export const parseResumeFile = async (
 
 export const findMissingFields = (profile: CandidateProfile): RequiredProfileField[] => {
   const missing: RequiredProfileField[] = [];
-  ("name" in profile && !profile.name) && missing.push("name");
-  (!profile.email || profile.email.trim().length === 0) && missing.push("email");
-  (!profile.phone || profile.phone.trim().length === 0) && missing.push("phone");
+  if (!profile.name || profile.name.trim().length === 0) {
+    missing.push("name");
+  }
+  if (!profile.email || !isValidEmail(profile.email)) {
+    missing.push("email");
+  }
+  if (!profile.phone || !isValidPhone(profile.phone)) {
+    missing.push("phone");
+  }
   return missing;
 };

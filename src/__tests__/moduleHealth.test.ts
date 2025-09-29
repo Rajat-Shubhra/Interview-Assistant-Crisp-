@@ -7,7 +7,7 @@ import sessionReducer, {
   setActiveProfile
 } from "../store/slices/sessionSlice";
 import candidatesReducer, { upsertCandidate } from "../store/slices/candidatesSlice";
-import { findMissingFields } from "../services/resumeParser";
+import { extractResumeFieldsFromText, findMissingFields } from "../services/resumeParser";
 import type { CandidateArchiveRecord, CandidateProfile } from "../types/interview";
 
 describe("module health smoke tests", () => {
@@ -79,5 +79,22 @@ describe("module health smoke tests", () => {
     expect(missing).toContain("name");
     expect(missing).toContain("email");
     expect(missing).toContain("phone");
+
+    const invalidProfile = buildProfile({ email: "invalid@@example", phone: "12345" });
+    const invalid = findMissingFields(invalidProfile);
+    expect(invalid).toContain("email");
+    expect(invalid).toContain("phone");
+  });
+
+  it("resume parser drops name tokens with special characters", () => {
+    const sampleText = "John$mith\nAlex Doe\n";
+    const extracted = extractResumeFieldsFromText(sampleText);
+    expect(extracted.name).toBe("Alex Doe");
+  });
+
+  it("resume parser detects spaced phone numbers", () => {
+    const sampleText = "Candidate: Alex Doe\nContact: 987 654 3210\n";
+    const extracted = extractResumeFieldsFromText(sampleText);
+    expect(extracted.phone).toBe("9876543210");
   });
 });

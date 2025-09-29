@@ -12,6 +12,11 @@ import {
   RequiredProfileField,
   SessionStage
 } from "../../types/interview";
+import {
+  isValidEmail,
+  isValidPhone,
+  sanitizeProfileFieldValue
+} from "../../utils/profileValidation";
 
 export type ResumeParseStatus = "idle" | "parsing" | "success" | "error";
 
@@ -100,17 +105,25 @@ const sessionSlice = createSlice({
         return;
       }
 
-      const trimmedValue = action.payload.value.trim();
+      const field = action.payload.field;
+      const sanitizedValue = sanitizeProfileFieldValue(field, action.payload.value);
+
+      const validators: Record<RequiredProfileField, (value: string) => boolean> = {
+        name: (value) => value.trim().length > 0,
+        email: (value) => isValidEmail(value),
+        phone: (value) => isValidPhone(value)
+      };
+
       const nextMissing = new Set(state.activeProfile.missingFields);
-      if (trimmedValue.length === 0) {
-        nextMissing.add(action.payload.field);
+      if (!validators[field](sanitizedValue)) {
+        nextMissing.add(field);
       } else {
-        nextMissing.delete(action.payload.field);
+        nextMissing.delete(field);
       }
 
       state.activeProfile = {
         ...state.activeProfile,
-        [action.payload.field]: trimmedValue,
+        [field]: sanitizedValue,
         missingFields: Array.from(nextMissing)
       };
     },

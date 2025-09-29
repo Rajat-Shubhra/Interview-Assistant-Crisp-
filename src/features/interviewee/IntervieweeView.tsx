@@ -27,6 +27,15 @@ import type {
   RequiredProfileField,
   SessionStage
 } from "../../types/interview";
+import {
+  EMAIL_MAX_LENGTH,
+  PHONE_DIGIT_COUNT,
+  isValidEmail,
+  isValidPhone,
+  sanitizeProfileFieldValue,
+  sanitizeEmailInput,
+  sanitizePhoneInput
+} from "../../utils/profileValidation";
 
 const { Title, Text } = Typography;
 
@@ -102,8 +111,16 @@ export const IntervieweeView = () => {
   }, [activeProfile, form]);
 
   useEffect(() => {
-    if (activeSession && activeSession.stage === "profile-completion" && missingFields.length === 0) {
-      dispatch(setSessionStage("ready-to-start"));
+    if (!activeSession) {
+      return;
+    }
+
+    if (missingFields.length === 0) {
+      if (activeSession.stage === "profile-completion") {
+        dispatch(setSessionStage("ready-to-start"));
+      }
+    } else if (activeSession.stage === "ready-to-start") {
+      dispatch(setSessionStage("profile-completion"));
     }
   }, [activeSession, missingFields, dispatch]);
 
@@ -439,28 +456,84 @@ export const IntervieweeView = () => {
             label="Full Name"
             name="name"
             required
-            validateStatus={fieldHasWarning("name") ? "warning" : undefined}
-            help={fieldHasWarning("name") ? "Name is required to personalize the interview." : undefined}
+            rules={[{ required: true, message: "Full name is required." }]}
+            validateStatus={fieldHasWarning("name") ? "error" : undefined}
+            help={fieldHasWarning("name") ? "Enter your full name so we can address you properly." : undefined}
+            normalize={(value) =>
+              typeof value === "string" ? sanitizeProfileFieldValue("name", value) : value
+            }
           >
-            <Input placeholder="Enter your full name" allowClear />
+            <Input placeholder="Enter your full name" allowClear maxLength={80} />
           </Form.Item>
           <Form.Item
             label="Email"
             name="email"
             required
-            validateStatus={fieldHasWarning("email") ? "warning" : undefined}
-            help={fieldHasWarning("email") ? "We'll use this to share your interview recap." : undefined}
+            rules={[
+              { required: true, message: "Email is required." },
+              {
+                validator: async (_, value) => {
+                  if (!value) {
+                    return Promise.resolve();
+                  }
+                  const sanitized = sanitizeEmailInput(value);
+                  if (!isValidEmail(sanitized)) {
+                    return Promise.reject(
+                      new Error("Enter a valid email with a single @ and domain (max 100 characters).")
+                    );
+                  }
+                  return Promise.resolve();
+                }
+              }
+            ]}
+            validateStatus={fieldHasWarning("email") ? "error" : undefined}
+            help={
+              fieldHasWarning("email")
+                ? "Use a valid email with one @ and a domain (example: alex@company.com)."
+                : undefined
+            }
+            normalize={(value) => (typeof value === "string" ? sanitizeEmailInput(value) : value)}
           >
-            <Input type="email" placeholder="Enter your email address" allowClear />
+            <Input
+              type="email"
+              placeholder="Enter your email address"
+              allowClear
+              maxLength={EMAIL_MAX_LENGTH}
+            />
           </Form.Item>
           <Form.Item
             label="Phone"
             name="phone"
             required
-            validateStatus={fieldHasWarning("phone") ? "warning" : undefined}
-            help={fieldHasWarning("phone") ? "Provide a phone number so we can reach you if needed." : undefined}
+            rules={[
+              { required: true, message: "Phone number is required." },
+              {
+                validator: async (_, value) => {
+                  if (!value) {
+                    return Promise.resolve();
+                  }
+                  if (!isValidPhone(value)) {
+                    return Promise.reject(new Error("Phone number must be exactly 10 digits."));
+                  }
+                  return Promise.resolve();
+                }
+              }
+            ]}
+            validateStatus={fieldHasWarning("phone") ? "error" : undefined}
+            help={
+              fieldHasWarning("phone")
+                ? "Enter exactly 10 digits with no letters or symbols."
+                : undefined
+            }
+            normalize={(value) => (typeof value === "string" ? sanitizePhoneInput(value) : value)}
           >
-            <Input placeholder="Enter your phone number" allowClear />
+            <Input
+              placeholder="Enter your phone number"
+              allowClear
+              maxLength={PHONE_DIGIT_COUNT}
+              inputMode="numeric"
+              pattern="[0-9]*"
+            />
           </Form.Item>
         </Form>
       </Space>
