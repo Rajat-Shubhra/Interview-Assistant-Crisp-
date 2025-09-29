@@ -141,7 +141,19 @@ export const InterviewerView = () => {
 
   const { candidateOptions, detailById } = useMemo(() => {
     const options: CandidateOption[] = [];
-    const map = new Map<string, CandidateDetail>();
+    const detailMap = new Map<string, CandidateDetail>();
+    const optionIndex = new Map<string, number>();
+
+    const upsertCandidate = (detail: CandidateDetail, option: CandidateOption) => {
+      detailMap.set(detail.id, detail);
+      const existingIndex = optionIndex.get(detail.id);
+      if (existingIndex !== undefined) {
+        options[existingIndex] = option;
+      } else {
+        optionIndex.set(detail.id, options.length);
+        options.push(option);
+      }
+    };
 
     if (activeSession && activeProfile) {
       const candidateId = activeProfile.id;
@@ -168,8 +180,7 @@ export const InterviewerView = () => {
         resume: activeProfile.resume ?? null
       };
 
-      map.set(candidateId, detail);
-      options.push({
+      upsertCandidate(detail, {
         id: candidateId,
         name: detail.name,
         role: activeProfile.role,
@@ -208,8 +219,7 @@ export const InterviewerView = () => {
         resume: record.profile.resume ?? null
       };
 
-      map.set(record.id, detail);
-      options.push({
+      upsertCandidate(detail, {
         id: record.id,
         name: detail.name,
         role: record.profile.role,
@@ -224,7 +234,7 @@ export const InterviewerView = () => {
       });
     });
 
-    return { candidateOptions: options, detailById: map };
+    return { candidateOptions: options, detailById: detailMap };
   }, [activeProfile, activeSession, truncatedHistory]);
 
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
@@ -392,6 +402,7 @@ export const InterviewerView = () => {
                       key={candidate.id}
                       className={`${styles.listItem} ${isSelected ? styles.selectedListItem : ""}`}
                       onClick={() => setSelectedCandidateId(candidate.id)}
+                      data-testid="candidate-entry"
                       role="button"
                       tabIndex={0}
                       onKeyDown={(event) => {
