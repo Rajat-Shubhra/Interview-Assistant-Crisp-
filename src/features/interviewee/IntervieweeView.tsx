@@ -395,7 +395,7 @@ export const IntervieweeView = () => {
               description="An interviewer will review your responses shortly."
             />
             <Button type="primary" danger onClick={handleReset}>
-              Reset
+              Start Over
             </Button>
           </Space>
         )}

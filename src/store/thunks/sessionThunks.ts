@@ -126,7 +126,14 @@ export const resetSession = createAsyncThunk<void, void, AsyncThunkConfig>(
     const state = getState();
     const resumeId = state.session.activeProfile?.resume?.id;
     if (resumeId) {
-      await deleteResumeFile(resumeId);
+      const isResumeReferenced = Object.values(state.candidates.records).some((record) => {
+        const candidateResumeId = record.profile.resume?.id;
+        return candidateResumeId && candidateResumeId === resumeId;
+      });
+
+      if (!isResumeReferenced) {
+        await deleteResumeFile(resumeId);
+      }
     }
     dispatch(clearActiveSession());
   }
