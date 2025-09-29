@@ -3,6 +3,7 @@ import {
   Card,
   Descriptions,
   Empty,
+  Input,
   Progress,
   Space,
   Table,
@@ -237,20 +238,78 @@ export const InterviewerView = () => {
     return { candidateOptions: options, detailById: detailMap };
   }, [activeProfile, activeSession, truncatedHistory]);
 
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [sortBy, setSortBy] = useState<"time" | "score">("time");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  const displayedCandidates = useMemo(() => {
+    const normalizedTerm = searchTerm.trim().toLowerCase();
+    const entries = candidateOptions.map((option) => ({ option, detail: detailById.get(option.id) ?? null }));
+
+    const filtered = normalizedTerm
+      ? entries.filter(({ option }) => option.name.toLowerCase().includes(normalizedTerm))
+      : entries;
+
+    const sorted = [...filtered].sort((left, right) => {
+      const pickTimestamp = (detail: CandidateDetail | null) =>
+        detail?.completedAt ?? detail?.updatedAt ?? detail?.createdAt ?? null;
+
+      if (sortBy === "score") {
+        const leftScore = left.option.score;
+        const rightScore = right.option.score;
+        const leftHasScore = typeof leftScore === "number";
+        const rightHasScore = typeof rightScore === "number";
+
+        if (leftHasScore && rightHasScore) {
+          const diff = leftScore - rightScore;
+          if (diff !== 0) {
+            return sortOrder === "asc" ? diff : -diff;
+          }
+        } else if (leftHasScore && !rightHasScore) {
+          return -1;
+        } else if (!leftHasScore && rightHasScore) {
+          return 1;
+        }
+      }
+
+      const leftTimestamp = pickTimestamp(left.detail);
+      const rightTimestamp = pickTimestamp(right.detail);
+
+      if (leftTimestamp && rightTimestamp) {
+        const leftValue = dayjs(leftTimestamp).valueOf();
+        const rightValue = dayjs(rightTimestamp).valueOf();
+        if (Number.isFinite(leftValue) && Number.isFinite(rightValue)) {
+          const diff = leftValue - rightValue;
+          if (diff !== 0) {
+            return sortOrder === "asc" ? diff : -diff;
+          }
+        }
+      } else if (leftTimestamp && !rightTimestamp) {
+        return -1;
+      } else if (!leftTimestamp && rightTimestamp) {
+        return 1;
+      }
+
+      return left.option.name.localeCompare(right.option.name, undefined, { sensitivity: "base" });
+    });
+
+    return sorted.map(({ option }) => option);
+  }, [candidateOptions, detailById, searchTerm, sortBy, sortOrder]);
+
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (candidateOptions.length === 0) {
+    if (displayedCandidates.length === 0) {
       if (selectedCandidateId !== null) {
         setSelectedCandidateId(null);
       }
       return;
     }
 
-    if (!selectedCandidateId || !candidateOptions.some((option) => option.id === selectedCandidateId)) {
-      setSelectedCandidateId(candidateOptions[0].id);
+    if (!selectedCandidateId || !displayedCandidates.some((option) => option.id === selectedCandidateId)) {
+      setSelectedCandidateId(displayedCandidates[0].id);
     }
-  }, [candidateOptions, selectedCandidateId]);
+  }, [displayedCandidates, selectedCandidateId]);
 
   const selectedDetail = selectedCandidateId ? detailById.get(selectedCandidateId) ?? null : null;
   const selectedStageDetails = selectedDetail ? STAGE_DETAILS[selectedDetail.stage] : null;
@@ -391,9 +450,45 @@ export const InterviewerView = () => {
       <div className={styles.splitLayout}>
         <div className={styles.leftPanel}>
           <Card title="Recent candidates" className={styles.fullWidthCard}>
-            {candidateOptions.length > 0 ? (
+            <div className={styles.candidateControls}>
+              <Input
+                id="candidate-search-input"
+                placeholder="Search by name..."
+                allowClear
+                aria-label="Search candidates by name"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+              <div className={styles.sortRow}>
+                <label className={styles.selectControl} htmlFor="candidate-sort-by">
+                  <span className={styles.controlLabel}>Sort by</span>
+                  <select
+                    id="candidate-sort-by"
+                    aria-label="Sort candidates by"
+                    value={sortBy}
+                    onChange={(event) => setSortBy(event.target.value as "time" | "score")}
+                  >
+                    <option value="time">Submission Time</option>
+                    <option value="score">Score</option>
+                  </select>
+                </label>
+                <label className={styles.selectControl} htmlFor="candidate-sort-order">
+                  <span className={styles.controlLabel}>Order</span>
+                  <select
+                    id="candidate-sort-order"
+                    aria-label="Sort order"
+                    value={sortOrder}
+                    onChange={(event) => setSortOrder(event.target.value as "asc" | "desc")}
+                  >
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            {displayedCandidates.length > 0 ? (
               <div className={styles.candidateList}>
-                {candidateOptions.map((candidate) => {
+                {displayedCandidates.map((candidate) => {
                   const stageInfo = STAGE_DETAILS[candidate.stage];
                   const isSelected = candidate.id === selectedCandidateId;
 
@@ -436,6 +531,8 @@ export const InterviewerView = () => {
                   );
                 })}
               </div>
+            ) : candidateOptions.length > 0 ? (
+              <Empty description="No candidates match your search." />
             ) : (
               <Empty description="Interviews you complete will show up here." />
             )}

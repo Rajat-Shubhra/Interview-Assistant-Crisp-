@@ -13,6 +13,7 @@ The Interview Assistant (Crisp) is a modern React-based web application designed
 - **AI-Powered Question Generation**: Dynamic interview questions tailored to candidate experience and role
 - **Real-Time Answer Evaluation**: Structured scoring with detailed feedback using Google Gemini
 - **Comprehensive Interview Analytics**: Live dashboard with progress tracking and candidate history
+- **Searchable Candidate Dashboard**: Quickly filter recent candidates by name and sort them by recency or evaluation score
 - **Persistent Data Storage**: Client-side storage for session continuity and candidate records
 - **Flexible Scoring System**: Multi-level difficulty assessment (Easy, Medium, Hard)
 - **Timer Management**: Configurable time limits per question with automatic submission
@@ -118,6 +119,12 @@ Here's a complete example of how to conduct an interview using the platform:
    ```
 
 #### For Interviewers (Interviewer View):
+
+The Recent Candidates panel includes instant search and sorting controls so you can pinpoint the right profile fast:
+
+- **Search**: Type part of a candidate's name to filter the list in real time (case-insensitive).
+- **Sort by**: Toggle between "Most Recent" and "Highest Score" to prioritize recency or top performers.
+- **Order**: Switch between descending and ascending order for your chosen sort.
 
 1. **Monitor Progress**:
    ```typescript

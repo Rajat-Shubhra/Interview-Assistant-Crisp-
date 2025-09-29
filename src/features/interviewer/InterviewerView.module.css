@@ -29,6 +29,41 @@
   padding-right: 4px;
 }
 
+.candidateControls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sortRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.selectControl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.selectControl select {
+  min-width: 160px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+}
+
+.controlLabel {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
 .listItem {
   border-radius: 12px;
   padding: 12px;
@@ -225,6 +260,10 @@
 
   .candidateList {
     max-height: none;
+  }
+
+  .sortRow {
+    flex-direction: column;
   }
 
   .progressSummary {
