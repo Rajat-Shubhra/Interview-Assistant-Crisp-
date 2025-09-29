@@ -11,7 +11,7 @@ import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
 
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_REGEX = /(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}/g;
-const NAME_MAX_WORDS = 3;
+const NAME_MAX_WORDS = 2;
 const NAME_MAX_LENGTH = 32;
 
 const sanitizeNameCandidate = (line: string): string | null => {
