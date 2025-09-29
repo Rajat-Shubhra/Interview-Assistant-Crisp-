@@ -17,6 +17,10 @@ The Interview Assistant (Crisp) is a modern React-based web application designed
 - **Flexible Scoring System**: Multi-level difficulty assessment (Easy, Medium, Hard)
 - **Timer Management**: Configurable time limits per question with automatic submission
 
+### Resume Parsing
+
+This project originally relied on a regex-based parser for extracting candidate details from resumes. The parser has now been replaced with a Gemini API-powered workflow, which delivers far better accuracy and resilience across diverse resume formats by delegating the extraction to Google's large language models.
+
 ## Getting Started
 
 ### Prerequisites

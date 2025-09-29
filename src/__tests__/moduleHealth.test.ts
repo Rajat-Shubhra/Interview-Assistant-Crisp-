@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import dayjs from "dayjs";
 
 import sessionReducer, {
@@ -7,10 +7,15 @@ import sessionReducer, {
   setActiveProfile
 } from "../store/slices/sessionSlice";
 import candidatesReducer, { upsertCandidate } from "../store/slices/candidatesSlice";
-import { extractResumeFieldsFromText, findMissingFields } from "../services/resumeParser";
+import { parseResumeTextWithGemini, findMissingFields } from "../services/resumeParser";
+import * as aiInterviewService from "../services/aiInterviewService";
 import type { CandidateArchiveRecord, CandidateProfile } from "../types/interview";
 
 describe("module health smoke tests", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   const buildProfile = (overrides: Partial<CandidateProfile> = {}): CandidateProfile => ({
     id: "profile-1",
     name: "Alex Doe",
@@ -86,15 +91,23 @@ describe("module health smoke tests", () => {
     expect(invalid).toContain("phone");
   });
 
-  it("resume parser drops name tokens with special characters", () => {
-    const sampleText = "John$mith\nAlex Doe\n";
-    const extracted = extractResumeFieldsFromText(sampleText);
-    expect(extracted.name).toBe("Alex Doe");
+  it("resume parser normalizes Gemini response fields", async () => {
+    vi.spyOn(aiInterviewService, "callGemini").mockResolvedValue(
+      '{"name":" Alex Doe ","email":"alex@example.com","phone":"+1 (987) 654-3210"}'
+    );
+
+    const fields = await parseResumeTextWithGemini("Sample resume text");
+    expect(fields).toEqual({
+      name: "Alex Doe",
+      email: "alex@example.com",
+      phone: "9876543210"
+    });
   });
 
-  it("resume parser detects spaced phone numbers", () => {
-    const sampleText = "Candidate: Alex Doe\nContact: 987 654 3210\n";
-    const extracted = extractResumeFieldsFromText(sampleText);
-    expect(extracted.phone).toBe("9876543210");
+  it("resume parser returns null fields when Gemini has no data", async () => {
+    vi.spyOn(aiInterviewService, "callGemini").mockResolvedValue(null);
+
+    const fields = await parseResumeTextWithGemini("Resume body");
+    expect(fields).toEqual({ name: null, email: null, phone: null });
   });
 });

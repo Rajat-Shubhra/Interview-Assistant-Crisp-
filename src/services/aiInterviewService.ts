@@ -42,7 +42,7 @@ interface GeminiCallOptions {
   maxOutputTokens?: number;
 }
 
-const callGemini = async (prompt: string, options?: GeminiCallOptions): Promise<string | null> => {
+export const callGemini = async (prompt: string, options?: GeminiCallOptions): Promise<string | null> => {
   const apiKey = readEnvKey();
   if (!apiKey) {
     return null;
@@ -132,7 +132,7 @@ const extractTextFromGemini = (payload: unknown): string | null => {
     .trim();
 };
 
-const parseJsonFromText = (raw: string | null): Record<string, unknown> | null => {
+export const parseJsonFromText = (raw: string | null): Record<string, unknown> | null => {
   if (!raw) {
     return null;
   }

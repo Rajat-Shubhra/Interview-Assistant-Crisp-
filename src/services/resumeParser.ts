@@ -7,97 +7,13 @@ import type {
   RequiredProfileField,
   ResumeFileMeta
 } from "../types/interview";
+import { callGemini, parseJsonFromText } from "./aiInterviewService";
 import {
-  PHONE_DIGIT_COUNT,
   isValidEmail,
   isValidPhone,
-  sanitizeEmailInput,
-  sanitizePhoneInput
+  sanitizeProfileFieldValue
 } from "../utils/profileValidation";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
-
-const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const PHONE_SEQUENCE_REGEX = /\+?(?:\d[\s().-]*){10,}/g;
-const NAME_MAX_WORDS = 2;
-const NAME_MAX_LENGTH = 32;
-
-const sanitizeNameCandidate = (line: string): string | null => {
-  const withoutBullet = line.replace(/^[\s*•\-\u2022]+/, "").trim();
-  if (!withoutBullet) {
-    return null;
-  }
-
-  const withoutHeader = withoutBullet.replace(/^(resume|curriculum vitae|cv)[\s:.-]*/i, "").trim();
-  if (!withoutHeader) {
-    return null;
-  }
-
-  const collapsed = withoutHeader.replace(/\s+/g, " ").trim();
-  if (!collapsed) {
-    return null;
-  }
-
-  const words = collapsed.split(" ").filter(Boolean);
-  if (!words.length) {
-    return null;
-  }
-
-  const filteredWords = words.filter((word) => /^[A-Za-z.]+$/.test(word));
-  if (!filteredWords.length) {
-    return null;
-  }
-
-  const truncatedWords = filteredWords.slice(0, NAME_MAX_WORDS);
-  let candidate = truncatedWords.join(" ");
-  if (candidate.length > NAME_MAX_LENGTH) {
-    candidate = candidate.slice(0, NAME_MAX_LENGTH).trim();
-  }
-
-  if (!candidate) {
-    return null;
-  }
-
-  if (/[@\d]{3,}/.test(candidate)) {
-    return null;
-  }
-
-  const alphaCount = (candidate.match(/[a-zA-Z]/g) ?? []).length;
-  if (alphaCount < 2) {
-    return null;
-  }
-
-  return candidate;
-};
-
-export const findPhoneCandidate = (text: string): { raw: string | null; sanitized: string | null } => {
-  const matches = text.match(PHONE_SEQUENCE_REGEX) ?? [];
-  for (const candidate of matches) {
-    const sanitized = sanitizePhoneInput(candidate);
-    if (sanitized.length === PHONE_DIGIT_COUNT) {
-      return { raw: candidate, sanitized };
-    }
-  }
-  return { raw: null, sanitized: null };
-};
-
-const pickProbableName = (lines: string[]): { sanitized: string | null; original: string | null } => {
-  for (const line of lines.slice(0, 12)) {
-    const sanitized = sanitizeNameCandidate(line);
-    if (sanitized) {
-      return { sanitized, original: line };
-    }
-  }
-  return { sanitized: null, original: lines[0] ?? null };
-};
-
-export interface ExtractedFields {
-  name: string | null;
-  email: string | null;
-  phone: string | null;
-  missingFields: RequiredProfileField[];
-  rawText: string;
-  highlightedPreview: string;
-}
 
 export interface ParsedResumeResult {
   profile: CandidateProfile;
@@ -105,67 +21,102 @@ export interface ParsedResumeResult {
   rawText: string;
 }
 
+export interface GeminiResumeContact {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+const EMPTY_CONTACT: GeminiResumeContact = {
+  name: null,
+  email: null,
+  phone: null
+};
+
+const MAX_PROMPT_CHARACTERS = 6000;
+
 const ensurePdfWorker = () => {
   if (!GlobalWorkerOptions.workerSrc) {
     GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
   }
 };
 
-const extractFromText = (text: string): ExtractedFields => {
-  const emailMatch = text.match(EMAIL_REGEX);
-  const { raw: rawPhone, sanitized: sanitizedPhone } = findPhoneCandidate(text);
-  const rawEmail = emailMatch?.[0] ?? null;
-  const sanitizedEmail = rawEmail ? sanitizeEmailInput(rawEmail) : null;
-
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const { sanitized: probableName, original: nameSource } = pickProbableName(lines);
-
-  const missingFields: RequiredProfileField[] = [];
-  if (!probableName) missingFields.push("name");
-  if (!sanitizedEmail || !isValidEmail(sanitizedEmail)) missingFields.push("email");
-  if (!sanitizedPhone || !isValidPhone(sanitizedPhone)) missingFields.push("phone");
-
-  const highlight = (value: string | null) => {
-    if (!value) return value;
-    return value.replace(/([.*+?^${}()|[\]\\])/g, "\\$1");
-  };
-
-  const emailPattern = highlight(rawEmail);
-  const phonePattern = highlight(rawPhone);
-  const namePattern = highlight(nameSource);
-
-  let highlightedPreview = text;
-  if (emailPattern) {
-    highlightedPreview = highlightedPreview.replace(
-      new RegExp(emailPattern, "g"),
-      (match) => `<<${match}>>`
-    );
+const truncateForPrompt = (text: string, limit = MAX_PROMPT_CHARACTERS) => {
+  if (text.length <= limit) {
+    return text;
   }
-  if (phonePattern) {
-    highlightedPreview = highlightedPreview.replace(
-      new RegExp(phonePattern, "g"),
-      (match) => `<<${match}>>`
-    );
-  }
-  if (namePattern) {
-    highlightedPreview = highlightedPreview.replace(namePattern, (match) => `<<${match}>>`);
-  }
-
-  return {
-    name: probableName,
-    email: sanitizedEmail,
-    phone: sanitizedPhone,
-    missingFields,
-    rawText: text,
-    highlightedPreview
-  };
+  return `${text.slice(0, limit)}\n\n[Content truncated for prompt length]`;
 };
 
-export const extractResumeFieldsFromText = (text: string): ExtractedFields => extractFromText(text);
+const buildResumeParsingPrompt = (resumeText: string) => `You are an expert resume parser that extracts contact details from resumes of software engineers.
+Return ONLY a JSON object with exactly these keys: "name", "email", and "phone".
+- If a value is missing, return null for that key.
+- Do not include any additional text, commentary, or markdown.
+- Ensure the JSON is valid and parsable.
+
+Resume text (between triple backticks):
+\n\n\`\`\`
+${truncateForPrompt(resumeText)}
+\`\`\`
+`;
+
+const normalizeName = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const sanitized = sanitizeProfileFieldValue("name", value);
+  const trimmed = sanitized.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeEmail = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const sanitized = sanitizeProfileFieldValue("email", value);
+  return isValidEmail(sanitized) ? sanitized : null;
+};
+
+const normalizePhone = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const sanitized = sanitizeProfileFieldValue("phone", value);
+  return isValidPhone(sanitized) ? sanitized : null;
+};
+
+const normalizeContactDetails = (payload: unknown): GeminiResumeContact => {
+  if (!payload || typeof payload !== "object") {
+    return EMPTY_CONTACT;
+  }
+
+  const candidate = payload as { name?: unknown; email?: unknown; phone?: unknown };
+  return {
+    name: normalizeName(candidate.name),
+    email: normalizeEmail(candidate.email),
+    phone: normalizePhone(candidate.phone)
+  } satisfies GeminiResumeContact;
+};
+
+export const parseResumeTextWithGemini = async (rawText: string): Promise<GeminiResumeContact> => {
+  try {
+    const prompt = buildResumeParsingPrompt(rawText);
+    const rawResponse = await callGemini(prompt, {
+      temperature: 0.1,
+      maxOutputTokens: 256
+    });
+
+    if (!rawResponse) {
+      return EMPTY_CONTACT;
+    }
+
+    const parsed = parseJsonFromText(rawResponse);
+    return normalizeContactDetails(parsed);
+  } catch (error) {
+    console.error("Gemini resume parsing failed", error);
+    return EMPTY_CONTACT;
+  }
+};
 
 const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
   new Promise((resolve, reject) => {
@@ -222,7 +173,9 @@ export const parseResumeFile = async (
   }
 
   const isPdf = extension === "pdf" || file.type === "application/pdf";
-  const isDocx = extension === "docx" || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const isDocx =
+    extension === "docx" ||
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
   if (!isPdf && !isDocx) {
     throw new Error("Unsupported file type. Please upload a PDF or DOCX resume.");
@@ -233,7 +186,7 @@ export const parseResumeFile = async (
     throw new Error("Unable to extract text from the resume. Please try a different file.");
   }
 
-  const extracted = extractFromText(rawText);
+  const contact = await parseResumeTextWithGemini(rawText);
 
   const resumeMeta: ResumeFileMeta = {
     id: nanoid(),
@@ -246,18 +199,21 @@ export const parseResumeFile = async (
 
   const profile: CandidateProfile = {
     id: nanoid(),
-    name: extracted.name,
-    email: extracted.email,
-    phone: extracted.phone,
+    name: contact.name,
+    email: contact.email,
+    phone: contact.phone,
     role: options?.role ?? "Full Stack Engineer",
     resume: resumeMeta,
-    missingFields: extracted.missingFields
+    missingFields: []
   };
+
+  const missing = findMissingFields(profile);
+  profile.missingFields = missing;
 
   return {
     profile,
     resumeMeta,
-    rawText: extracted.rawText
+    rawText
   };
 };
 
