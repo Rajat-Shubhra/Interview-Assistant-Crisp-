@@ -244,6 +244,11 @@ Return ONLY JSON with this schema:
   "feedback": string
 }
 
+Rules:
+- Respond with a single JSON object and absolutely no extra commentary, markdown, or explanations.
+- The "feedback" value must be a concise summary under 100 words.
+- Focus the feedback on the top 2-3 most critical issues or strengths that affect the score.
+
 Consider technical depth, clarity, and problem solving.
 
 Question:
